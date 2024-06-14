@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -358,6 +359,32 @@ func (t *Tracer) TracePrepareStart(ctx context.Context, conn *pgx.Conn, data pgx
 	ctx, _ = t.tracer.Start(ctx, spanName, opts...)
 
 	return ctx
+}
+
+// TraceAcquireStart is called at the beginning of pgxpool.Aquire calls. The
+// returned context is used for the rest of the call and will be passed to the
+// TraceAcquireEnd.
+func (t *Tracer) TraceAcquireStart(ctx context.Context, _ *pgxpool.Pool, _ pgxpool.TraceAcquireStartData) context.Context {
+	if !trace.SpanFromContext(ctx).IsRecording() {
+		return ctx
+	}
+
+	opts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(t.attrs...),
+	}
+
+	ctx, _ = t.tracer.Start(ctx, "acquire", opts...)
+
+	return ctx
+}
+
+// TraceAcquireEnd is called when a connection has been acquired.
+func (t *Tracer) TraceAcquireEnd(ctx context.Context, pool *pgxpool.Pool, data pgxpool.TraceAcquireEndData) {
+	span := trace.SpanFromContext(ctx)
+	recordError(span, data.Err)
+
+	span.End()
 }
 
 // TracePrepareEnd is called at the end of Prepare calls.
